@@ -1,0 +1,59 @@
+import csv
+
+import pandas as pd
+
+# Load the data
+import requests
+
+
+symbol = "https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords=ACC&apikey=IO36W7YZDX42OL9N"
+r = requests.get(symbol)
+symbol = r.json()
+C_symbol = list(symbol.items())
+c_s = list(C_symbol[0][1][0].items())
+url = "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol="+str(c_s[0][1])+"&outputsize=full&apikey=IO36W7YZDX42OL9N&datatype=csv"
+r = requests.get(url)
+decoded_content = r.content.decode('utf-8')
+cr = csv.reader(decoded_content.splitlines(), delimiter=',')
+my_list = list(cr)
+df = pd.DataFrame(my_list)
+df.columns = df.iloc[0]
+df.drop(index=0,inplace=True)
+df['Close'] = df['close'].astype(float)
+
+
+# Calculate the indicators
+# RSI calculation
+delta = df['Close'].diff()
+gain = delta.where(delta > 0, 0)
+loss = -delta.where(delta < 0, 0)
+avg_gain = gain.ewm(span=14, adjust=True).mean()
+avg_loss = loss.ewm(span=14, adjust=True).mean()
+rs = avg_gain / avg_loss
+df['RSI'] = 100 - (100 / (1 + rs))
+
+# Exponential Moving Averages calculation
+df["EMA_Short"] = df["Close"].ewm(span=5, adjust=True).mean()
+df["EMA_Long"] = df["Close"].ewm(span=20, adjust=True).mean()
+
+#Difference between EMA
+
+df["Difference"] = df["EMA_Short"] - df["EMA_Long"]
+
+# Identify the trend
+df['Trend'] = ''
+df.loc[df['EMA_Short'] > df['EMA_Long'], 'Trend'] = 'Uptrend'
+df.loc[df['EMA_Short'] < df['EMA_Long'], 'Trend'] = 'Downtrend'
+
+# Identify overbought or oversold conditions
+df['Overbought_Oversold'] = ''
+df.loc[df['RSI'] > 70, 'Overbought_Oversold'] = 'Overbought'
+df.loc[df['RSI'] < 30, 'Overbought_Oversold'] = 'Oversold'
+
+# Confirm signals
+df['Signal'] = ''
+df.loc[(df['Trend'] == 'Uptrend') & (df['Overbought_Oversold'] == 'Oversold'), 'Signal'] = 'Buy'
+df.loc[(df['Trend'] == 'Downtrend') & (df['Overbought_Oversold'] == 'Overbought'), 'Signal'] = 'Sell'
+
+# Print the data
+print(df)
